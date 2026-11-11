@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leeep Connect</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-badge">LC</div>
+        <div class="title-group">
+          <h1>Leeep Connect</h1>
+          <span class="version-tag" id="app-version"></span>
+        </div>
+      </div>
+      <button id="minimize-btn" class="icon-btn" title="Minimize to tray">─</button>
+    </header>
+
+    <main class="content">
+      <!-- 1. Idle State -->
+      <section id="state-idle" class="state-card active">
+        <div class="status-icon idle-icon">⚡</div>
+        <h2>Ready for Support</h2>
+        <p class="desc">Leeep Connect is running in your system tray. When you request remote help in your school portal, the session will connect automatically.</p>
+        <div class="info-box">
+          <small>Nobody can see or control this computer unless you click <strong>Accept</strong> when asked.</small>
+        </div>
+      </section>
+
+      <!-- 2. Requesting State -->
+      <section id="state-requesting" class="state-card">
+        <div class="spinner"></div>
+        <h2>Connecting...</h2>
+        <p class="desc">Claiming session token with central support server.</p>
+      </section>
+
+      <!-- 3. Waiting State -->
+      <section id="state-waiting" class="state-card">
+        <div class="status-icon waiting-icon">⏳</div>
+        <h2>Waiting for Agent</h2>
+        <div class="metric-container">
+          <div class="metric">
+            <span class="metric-label">Queue Position</span>
+            <span id="queue-pos" class="metric-value">#1</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Wait Time</span>
+            <span id="wait-time" class="metric-value">00:00</span>
+          </div>
+        </div>
+        <p class="desc">A support engineer will join your session shortly. Please keep this window open.</p>
+        <button id="stop-waiting-btn" class="btn btn-secondary">Cancel Request</button>
+      </section>
+
+      <!-- 4. Agent Joining State -->
+      <section id="state-agentjoining" class="state-card">
+        <div class="status-icon joining-icon">👋</div>
+        <h2>Agent Joining</h2>
+        <p class="desc"><strong id="joining-agent-name">Support Agent</strong> is connecting now.</p>
+        <p class="desc"><strong>A Leeep Connect box will ask for permission. Click Accept</strong> to let them see and control your screen.</p>
+        <div class="progress-bar"><div class="progress-fill"></div></div>
+      </section>
+
+      <!-- 5. In Session State -->
+      <section id="state-insession" class="state-card">
+        <div class="session-badge">
+          <span class="pulse-dot"></span>
+          <span>LIVE SESSION</span>
+        </div>
+        <h2>Connected with Support</h2>
+        <div class="agent-card">
+          <div class="avatar-circle">👤</div>
+          <div class="agent-details">
+            <span id="active-agent-name" class="agent-name">Agent Name</span>
+            <span class="agent-subtitle">Remote Desktop Session Active</span>
+          </div>
+        </div>
+        <div class="session-timer-box">
+          <span class="timer-label">Session Duration:</span>
+          <span id="session-time" class="timer-value">00:00</span>
+        </div>
+        <div class="security-banner">
+          🛡️ Your screen is currently being shared with Leeep Support.
+        </div>
+        <button id="stop-session-btn" class="btn btn-danger">Stop Session</button>
+      </section>
+
+      <!-- 6. Ended State -->
+      <section id="state-ended" class="state-card">
+        <div class="status-icon ended-icon">✓</div>
+        <h2>Session Ended</h2>
+        <p id="ended-reason" class="desc">The remote support session has ended.</p>
+        <div id="ended-duration-box" class="info-box" style="display: none;">
+          <small>Duration: <span id="ended-duration">0m 0s</span></small>
+        </div>
+        <button id="dismiss-ended-btn" class="btn btn-primary">Done</button>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <span id="footer-status-text">Connected to system tray</span>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

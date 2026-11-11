@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The status window: listen for state changes, read the app version, call our own commands. No file, shell or network access from the UI.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
