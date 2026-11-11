@@ -8,11 +8,12 @@ use tauri::{
 pub const TRAY_ID: &str = "main-tray";
 
 pub fn create_tray(app: &AppHandle) -> Result<TrayIcon, Box<dyn std::error::Error>> {
-    let open_item = MenuItem::with_id(app, "open", "Open Leeep Connect", true, None::<&str>)?;
-    let stop_item = MenuItem::with_id(app, "stop", "Stop Active Session", true, None::<&str>)?;
+    // Minimal presence menu. Leeep Connect has no client-facing window and no
+    // client session controls; a session is driven from the operator console.
+    // "Exit" stays so the app can always be quit from the machine it runs on.
     let exit_item = MenuItem::with_id(app, "exit", "Exit", true, None::<&str>)?;
 
-    let menu = Menu::with_items(app, &[&open_item, &stop_item, &exit_item])?;
+    let menu = Menu::with_items(app, &[&exit_item])?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID);
     // The app icon from tauri.conf.json → bundle.icon
@@ -23,20 +24,10 @@ pub fn create_tray(app: &AppHandle) -> Result<TrayIcon, Box<dyn std::error::Erro
         .tooltip("Leeep Connect: Ready")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "open" => {
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.show();
-                    let _ = win.set_focus();
-                }
-            }
-            "stop" => {
-                let app_clone = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ = crate::stop_session_internal(&app_clone, Some("Stopped from tray menu")).await;
-                });
-            }
             "exit" => {
-                // Never leave a live session running without the app (and its Stop button)
+                // Ending the central request on exit keeps central's view tidy;
+                // it does not touch the remote-control agent, which is a
+                // separate Windows service.
                 let app_clone = app.clone();
                 tauri::async_runtime::spawn(async move {
                     let active = {
@@ -51,25 +42,6 @@ pub fn create_tray(app: &AppHandle) -> Result<TrayIcon, Box<dyn std::error::Erro
                 });
             }
             _ => {}
-        })
-        .on_tray_icon_event(|tray, event| {
-            if let tauri::tray::TrayIconEvent::Click {
-                button: tauri::tray::MouseButton::Left,
-                button_state: tauri::tray::MouseButtonState::Up,
-                ..
-            } = event
-            {
-                let app = tray.app_handle();
-                if let Some(win) = app.get_webview_window("main") {
-                    let is_visible = win.is_visible().unwrap_or(false);
-                    if is_visible {
-                        let _ = win.hide();
-                    } else {
-                        let _ = win.show();
-                        let _ = win.set_focus();
-                    }
-                }
-            }
         })
         .build(app)?;
 

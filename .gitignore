@@ -1,0 +1,18 @@
+# Build output
+/app/target/
+/app/gen/
+
+# Bundled MeshCentral agent — embeds a specific server address; downloaded per build.
+# (see installer/README.md)
+/installer/resources/meshagent.exe
+
+# Local handover artifact
+/leeep-connect-fixes.patch
+
+# Generated non-Windows icon sets — regenerate with:
+#   cargo tauri icon app/icons/leeep-square.svg
+/app/icons/android/
+/app/icons/ios/
+/app/icons/*Logo.png
+/app/icons/StoreLogo.png
+/app/icons/icon.icns

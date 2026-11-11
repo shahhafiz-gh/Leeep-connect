@@ -10,16 +10,24 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::watch;
 
+/// The IPC handler for the window's commands, registered by main.rs.
+/// Tauri commands defined in lib.rs can't be `pub` (the macro's generated glue
+/// would be defined twice, error E0255), so they stay private and are exposed
+/// through this one function instead.
+pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![get_state, start_claim, stop_session, minimize_to_tray]
+}
+
 /// Get current session state
 #[tauri::command]
-pub async fn get_state(state: State<'_, Arc<AppState>>) -> Result<SessionState, String> {
+async fn get_state(state: State<'_, Arc<AppState>>) -> Result<SessionState, String> {
     let s = state.state.read().await;
     Ok(s.clone())
 }
 
 /// Triggered by frontend or deep link to claim a session token
 #[tauri::command]
-pub async fn start_claim(token: String, app: AppHandle) -> Result<(), String> {
+async fn start_claim(token: String, app: AppHandle) -> Result<(), String> {
     let app_state = app.state::<Arc<AppState>>().inner().clone();
     
     // Set requesting state
@@ -86,6 +94,7 @@ pub async fn start_claim(token: String, app: AppHandle) -> Result<(), String> {
             }
             emit_state_change(&app, &ended);
             tray::update_tray_status(&app, &ended);
+            shutdown_after_session(&app);
             Err(e)
         }
     }
@@ -93,13 +102,13 @@ pub async fn start_claim(token: String, app: AppHandle) -> Result<(), String> {
 
 /// Stop the active support session
 #[tauri::command]
-pub async fn stop_session(app: AppHandle) -> Result<(), String> {
+async fn stop_session(app: AppHandle) -> Result<(), String> {
     stop_session_internal(&app, Some("Stopped by user via desktop app")).await
 }
 
 /// Minimize the main window to the system tray
 #[tauri::command]
-pub async fn minimize_to_tray(app: AppHandle) -> Result<(), String> {
+async fn minimize_to_tray(app: AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.hide();
     }
@@ -138,6 +147,28 @@ pub async fn stop_session_internal(app: &AppHandle, reason: Option<&str>) -> Res
     emit_state_change(app, &ended);
     tray::update_tray_status(app, &ended);
     Ok(())
+}
+
+/// Close Leeep Connect once a support session has finished.
+///
+/// In the approval-gated model the app only needs to run for the duration of an
+/// approved session. When the session ends (the operator finished it, or it was
+/// cancelled / declined / expired) the app quits so nothing of Leeep's stays
+/// resident on the client between sessions — a later approved request re-opens
+/// it through the `leeep-connect://` handler.
+///
+/// NOTE: this quits the *app* only. The MeshAgent (`LeeepConnect` service) is a
+/// separate, always-on Windows service, so "no access between sessions" must
+/// also be enforced server-side: the engine must refuse a session unless there
+/// is an approved request. Quitting the app alone does not sever the agent.
+fn shutdown_after_session(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        // Brief grace so the final state emit and log flush complete first.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        tracing::info!("Support session finished; closing Leeep Connect");
+        app.exit(0);
+    });
 }
 
 /// Polling loop running every 3 seconds to monitor central assignment and status
@@ -197,6 +228,7 @@ async fn run_polling_loop(
                                     duration_seconds: if session_elapsed > 0 { Some(session_elapsed) } else { None },
                                 };
                                 update_state(&app, &app_state, new_state).await;
+                                shutdown_after_session(&app);
                                 break;
                             }
                             _ => {
@@ -284,12 +316,8 @@ pub fn handle_deep_link(app: &AppHandle, raw_url: &str) {
 
     match parse_deep_link(raw_url) {
         Ok(token) => {
-            // Bring window to focus
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.show();
-                let _ = win.set_focus();
-            }
-
+            // Headless: no window is shown. The claim runs in the background and
+            // the session is driven from the operator console.
             let app_clone = app.clone();
             tauri::async_runtime::spawn(async move {
                 let _ = start_claim(token, app_clone).await;

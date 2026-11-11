@@ -5,7 +5,7 @@ use leeep_connect::{
     handle_deep_link, logging, state::AppState, tray,
 };
 use std::env;
-use tauri::{Manager, WindowEvent};
+use tauri::WindowEvent;
 
 fn main() {
     // 1. Initialize safe rotating logging (daily rotation, token-redacted)
@@ -28,18 +28,10 @@ fn main() {
                     return;
                 }
             }
-            // If launched without specific deep link, just bring window to focus
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.show();
-                let _ = win.set_focus();
-            }
+            // Background agent: a second launch with no deep link does nothing
+            // visible. There is no client-facing window to raise.
         }))
-        .invoke_handler(tauri::generate_handler![
-            leeep_connect::get_state,
-            leeep_connect::start_claim,
-            leeep_connect::stop_session,
-            leeep_connect::minimize_to_tray,
-        ])
+        .invoke_handler(leeep_connect::invoke_handler())
         .setup(|app| {
             let handle = app.handle();
 
@@ -62,26 +54,15 @@ fn main() {
                 });
             }
 
-            // 4. Handle initial command-line arguments (if launched directly via protocol)
+            // 4. Handle an initial deep link if launched directly via the protocol.
+            // This runs headless: the window is never shown. Leeep Connect is a
+            // silent background agent; a support session is started and driven
+            // entirely from the operator console, not from any client-side UI.
             let args: Vec<String> = env::args().collect();
-            let mut launched_via_deep_link = false;
-            let mut start_minimized = false;
-
             for arg in &args[1..] {
                 if arg.starts_with("leeep-connect://") {
                     handle_deep_link(handle, arg);
-                    launched_via_deep_link = true;
                     break;
-                } else if arg == "--minimized" || arg == "--tray" {
-                    start_minimized = true;
-                }
-            }
-
-            // If not launched minimized, or if deep-link was received, show main window
-            if !start_minimized || launched_via_deep_link {
-                if let Some(win) = handle.get_webview_window("main") {
-                    let _ = win.show();
-                    let _ = win.set_focus();
                 }
             }
 

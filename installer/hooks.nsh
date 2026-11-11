@@ -14,8 +14,9 @@
 ;
 ; VERIFY (spike): meshagent switches -fullinstall / -fulluninstall and the
 ; service name "LeeepConnect" (from agentCustomization.serviceName).
-; VERIFY (first build): MAINBINARYNAME and $UpdateMode come from Tauri's NSIS
-; template; check the generated installer.nsi under target/release/nsis.
+; Checked on the first build (tauri-cli 2.12.4): MAINBINARYNAME ("leeep-connect")
+; and $UpdateMode (set from /UPDATE in un.onInit) exist in Tauri's NSIS template,
+; and this pre-uninstall hook runs before the template deletes any files.
 
 !define LC_PROTOCOL "leeep-connect"
 !define LC_SERVICE "LeeepConnect"
@@ -38,14 +39,29 @@
     DetailPrint "Remote support service already installed"
   ${EndIf}
 
+  ; The installer is a 32-bit process and Tauri's template never calls
+  ; SetRegView 64, so HKLM\Software\...\Run would land in WOW6432Node.
+  ; Use the 64-bit view for our keys only, then restore Tauri's view.
+  ${If} ${RunningX64}
+    SetRegView 64
+  ${EndIf}
+
   ; 2. leeep-connect:// for all users
   WriteRegStr HKLM "Software\Classes\${LC_PROTOCOL}" "" "URL:Leeep Connect"
   WriteRegStr HKLM "Software\Classes\${LC_PROTOCOL}" "URL Protocol" ""
   WriteRegStr HKLM "Software\Classes\${LC_PROTOCOL}\DefaultIcon" "" '"$INSTDIR\${MAINBINARYNAME}.exe",0'
   WriteRegStr HKLM "Software\Classes\${LC_PROTOCOL}\shell\open\command" "" '"$INSTDIR\${MAINBINARYNAME}.exe" "%1"'
 
-  ; 3. Tray app at every login
-  WriteRegStr HKLM "${LC_RUN_KEY}" "LeeepConnect" '"$INSTDIR\${MAINBINARYNAME}.exe" --minimized'
+  ; 3. No login auto-start. In the approval-gated model the app is launched
+  ;    only when a support request is approved (via the leeep-connect:// handler
+  ;    above) and quits itself when the session ends, so nothing of Leeep's runs
+  ;    on the client between sessions. (Any Run value from an older build is
+  ;    cleared below so upgrades don't leave it behind.)
+  DeleteRegValue HKLM "${LC_RUN_KEY}" "LeeepConnect"
+
+  ${If} ${RunningX64}
+    SetRegView lastused
+  ${EndIf}
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
@@ -59,7 +75,13 @@
     ${If} ${FileExists} "$INSTDIR\meshagent\meshagent.exe"
       nsExec::ExecToLog '"$INSTDIR\meshagent\meshagent.exe" -fulluninstall'
     ${EndIf}
+    ${If} ${RunningX64}
+      SetRegView 64
+    ${EndIf}
     DeleteRegKey HKLM "Software\Classes\${LC_PROTOCOL}"
     DeleteRegValue HKLM "${LC_RUN_KEY}" "LeeepConnect"
+    ${If} ${RunningX64}
+      SetRegView lastused
+    ${EndIf}
   ${EndIf}
 !macroend
