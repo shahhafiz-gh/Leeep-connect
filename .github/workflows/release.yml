@@ -1,0 +1,153 @@
+# Builds the Leeep Connect Windows installer and publishes it as a GitHub Release.
+#
+# Release:   bump `version` in app/Cargo.toml, commit, then
+#              git tag v0.2.0 && git push origin v0.2.0
+#            The tag must match Cargo.toml. A tag with a dash (v0.2.0-beta.1) is
+#            published as a pre-release and does NOT become the "latest" download.
+# Test build: run from the Actions tab (workflow_dispatch). Nothing is published;
+#            the installer is attached to the run as an artifact.
+#
+# Every release carries:
+#   LeeepConnect-setup.exe            fixed name: what schools download through
+#                                     .../releases/latest/download/LeeepConnect-setup.exe
+#   LeeepConnect-<version>-setup.exe  the same file, versioned: what the auto-updater
+#                                     downloads (central builds this name; keep it)
+#   LeeepConnect-<version>-setup.exe.sig  updater signature (only with the updater key)
+#   LeeepConnect-<version>-setup.exe.sha256  checksum central's push update checks
+#                                     (also printed in the release notes)
+#
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   LEEEP_CONNECT_AGENT_URL       (required) production engine's agent link:
+#                                 https://connect.leeep.in → "Leeep Clients" → Add Agent →
+#                                 Windows → Background & interactive → x64 → copy link.
+#                                 Must be on connect.leeep.in, so a LAN/test agent can
+#                                 never ship.
+#   TAURI_SIGNING_PRIVATE_KEY     (optional) updater key from `cargo tauri signer generate`
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD (optional)
+#   LEEEP_CONNECT_SIGN_COMMAND    (optional) code-signing command for the OV certificate,
+#                                 with %1 where the file path goes. Without it, Windows
+#                                 SmartScreen warns schools when they run the installer.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PRODUCTION_ENGINE_HOST: connect.leeep.in
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read and check the version
+        id: version
+        run: |
+          $m = Select-String -Path app/Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1
+          if (-not $m) { throw "No version in app/Cargo.toml" }
+          $version = $m.Matches[0].Groups[1].Value
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match Cargo.toml version $version (expected tag v$version)"
+          }
+          if ($env:LEEEP_CONNECT_CENTRAL_URL -or $env:LEEEP_CONNECT_SITE_NAME) {
+            throw "A test central URL is set; release builds must talk to admin.leeep.in"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "prerelease=$(if ($version.Contains('-')) { 'true' } else { 'false' })" >> $env:GITHUB_OUTPUT
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Fetch the production engine agent
+        env:
+          AGENT_URL: ${{ secrets.LEEEP_CONNECT_AGENT_URL }}
+        run: |
+          if (-not $env:AGENT_URL) { throw "Set the LEEEP_CONNECT_AGENT_URL secret" }
+          $agentHost = ([Uri]$env:AGENT_URL).Host
+          if ($agentHost -ne $env:PRODUCTION_ENGINE_HOST) {
+            throw "Agent link points at '$agentHost', not $env:PRODUCTION_ENGINE_HOST. Test agents must never ship."
+          }
+          New-Item -ItemType Directory -Force installer/resources | Out-Null
+          Invoke-WebRequest -Uri $env:AGENT_URL -OutFile installer/resources/meshagent.exe
+          if ((Get-Item installer/resources/meshagent.exe).Length -lt 500KB) { throw "Agent download looks wrong" }
+
+      - name: Build installer
+        working-directory: app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          SIGN_COMMAND: ${{ secrets.LEEEP_CONNECT_SIGN_COMMAND }}
+        run: |
+          $overrides = @{ bundle = @{ windows = @{} } }
+          if ($env:TAURI_SIGNING_PRIVATE_KEY) { $overrides.bundle.createUpdaterArtifacts = $true }
+          if ($env:SIGN_COMMAND) { $overrides.bundle.windows.signCommand = $env:SIGN_COMMAND }
+          else { Write-Output "::warning::Installer is not code-signed; SmartScreen will warn schools." }
+          $overrides | ConvertTo-Json -Depth 5 -Compress | Set-Content -Encoding utf8 ci-overrides.json
+          cargo tauri build --config ci-overrides.json
+
+      - name: Unit tests (Rust)
+        working-directory: app
+        run: cargo test --release
+
+      - name: Name the release files
+        id: files
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $exe = Get-ChildItem app/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          if (-not $exe) { throw "Installer not found" }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item $exe.FullName "dist/LeeepConnect-setup.exe"
+          Copy-Item $exe.FullName "dist/LeeepConnect-$env:VERSION-setup.exe"
+          $sig = "$($exe.FullName).sig"
+          if (Test-Path $sig) { Copy-Item $sig "dist/LeeepConnect-$env:VERSION-setup.exe.sig" }
+          # Central's push update refuses an installer whose SHA-256 doesn't match this
+          $sha = (Get-FileHash -Algorithm SHA256 "dist/LeeepConnect-$env:VERSION-setup.exe").Hash.ToLower()
+          Set-Content -NoNewline -Encoding ascii "dist/LeeepConnect-$env:VERSION-setup.exe.sha256" $sha
+          "sha256=$sha" >> $env:GITHUB_OUTPUT
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: leeep-connect-windows-${{ steps.version.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          SHA256: ${{ steps.files.outputs.sha256 }}
+        run: |
+          $notes = @(
+            "Leeep Connect $env:VERSION for Windows.",
+            "",
+            "Schools: download **LeeepConnect-setup.exe** and run it once.",
+            "",
+            "To push this version to school computers, set in Leeep Connect Settings on admin.leeep.in:",
+            "- Current App Version: ``$env:VERSION``",
+            "- Installer SHA-256: ``$env:SHA256``"
+          ) -join "`n"
+          $flags = if ($env:PRERELEASE -eq 'true') { @('--prerelease') } else { @('--latest') }
+          gh release create $env:GITHUB_REF_NAME (Get-ChildItem dist).FullName --title "Leeep Connect $env:VERSION" --notes $notes @flags

@@ -69,12 +69,21 @@ Never ship a build made with these variables.
    the private key + password in the GitHub secrets `TAURI_SIGNING_PRIVATE_KEY`
    / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Keep the private key safe: losing it
    means installed apps can never auto-update again.
-2. Bump `version` in `Cargo.toml`, run the workflow, download the artifact.
-3. Upload the `*-setup.exe` somewhere public over HTTPS.
-4. In **Leeep Connect Settings**: set *Windows Installer URL* to it, *Current App
-   Version*, paste the `.sig` file's contents into *Updater Signature*, and
-   optionally raise *Minimum App Version* to force old apps to update before
-   their next session.
+2. One time: set the `LEEEP_CONNECT_AGENT_URL` secret (see
+   `.github/workflows/release.yml`), and in **Leeep Connect Settings** on
+   admin.leeep.in set *Windows Installer URL* to
+   `https://github.com/shahhafiz-gh/Leeep-connect/releases/latest/download/LeeepConnect-setup.exe`.
+   That link always serves the newest release, so it never changes again.
+3. Each release: bump `version` in `Cargo.toml`, commit, then
+   `git tag v<version> && git push origin v<version>`. The **Release** workflow
+   builds and publishes it; new downloads get it straight away.
+4. To update PCs that already have the app: in **Leeep Connect Settings** set
+   *Current App Version* and *Installer SHA-256* (both are in the release notes),
+   try one PC with **Update** in the console's Devices tab, then tick *Push
+   Updates Through the Engine*. Central has the engine agent (SYSTEM) download
+   `LeeepConnect-<version>-setup.exe`, check its SHA-256 and run it with
+   `/S /UPDATE`, so keep that file name, and keep `hooks.nsh` leaving the agent
+   alone in update mode.
 
 ## Code signing
 
