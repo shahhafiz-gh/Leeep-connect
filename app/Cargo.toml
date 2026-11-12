@@ -1,6 +1,6 @@
 [package]
 name = "leeep-connect"
-version = "0.1.0"
+version = "1.0.0"
 description = "Leeep Connect Desktop Client"
 authors = ["Leeep Technologies <support@leeep.in>"]
 edition = "2021"
