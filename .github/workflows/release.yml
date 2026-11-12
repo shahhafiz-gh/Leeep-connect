@@ -149,5 +149,8 @@ jobs:
             "- Current App Version: ``$env:VERSION``",
             "- Installer SHA-256: ``$env:SHA256``"
           ) -join "`n"
-          $flags = if ($env:PRERELEASE -eq 'true') { @('--prerelease') } else { @('--latest') }
-          gh release create $env:GITHUB_REF_NAME (Get-ChildItem dist).FullName --title "Leeep Connect $env:VERSION" --notes $notes @flags
+          # A plain string: splatting (@x) a one-item array hands gh one character at a time
+          $flag = if ($env:PRERELEASE -eq 'true') { '--prerelease' } else { '--latest' }
+          $files = @(Get-ChildItem dist | ForEach-Object { $_.FullName })
+          gh release create $env:GITHUB_REF_NAME @files --title "Leeep Connect $env:VERSION" --notes $notes $flag
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }

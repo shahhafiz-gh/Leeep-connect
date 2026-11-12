@@ -26,9 +26,9 @@ Stop button / tray Stop / tray Exit ── app_end ──▶ central ends the se
   it can't, central matches the PC by computer name in the engine, and it
   double-checks any id the app sends.
 - **Single instance.** A second launch (a new link) is handed to the running app.
-- **Auto-update.** Release builds check `leeep.leeep.connect.app_update` a
-  minute after start and every 6 hours, only while no request is active. Off
-  until a real updater public key is set (see below).
+- **Updates.** Central pushes new versions through the engine agent (see
+  "Releases and auto-update"). The app's own Tauri updater stays off: it has
+  no updater public key.
 - **Logs.** `%LOCALAPPDATA%\LeeepConnect\logs\`, rotated daily, no tokens.
 
 ## Build on Windows
@@ -64,20 +64,19 @@ Never ship a build made with these variables.
 
 ## Releases and auto-update
 
-1. One time: `cargo tauri signer generate -w leeep-connect-updater.key`. Put the
-   **public** key in `tauri.conf.json → plugins.updater.pubkey` (commit it), and
-   the private key + password in the GitHub secrets `TAURI_SIGNING_PRIVATE_KEY`
-   / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Keep the private key safe: losing it
-   means installed apps can never auto-update again.
-2. One time: set the `LEEEP_CONNECT_AGENT_URL` secret (see
+Releases are built on GitHub by `.github/workflows/release.yml`; nothing is
+built or uploaded by hand. App updates are pushed by central through the engine
+(step 4), so the Tauri updater key (`TAURI_SIGNING_PRIVATE_KEY`) is not needed.
+
+1. One time: set the `LEEEP_CONNECT_AGENT_URL` secret (see
    `.github/workflows/release.yml`), and in **Leeep Connect Settings** on
    admin.leeep.in set *Windows Installer URL* to
    `https://github.com/shahhafiz-gh/Leeep-connect/releases/latest/download/LeeepConnect-setup.exe`.
    That link always serves the newest release, so it never changes again.
-3. Each release: bump `version` in `Cargo.toml`, commit, then
+2. Each release: bump `version` in `Cargo.toml`, commit, then
    `git tag v<version> && git push origin v<version>`. The **Release** workflow
    builds and publishes it; new downloads get it straight away.
-4. To update PCs that already have the app: in **Leeep Connect Settings** set
+3. To update PCs that already have the app: in **Leeep Connect Settings** set
    *Current App Version* and *Installer SHA-256* (both are in the release notes),
    try one PC with **Update** in the console's Devices tab, then tick *Push
    Updates Through the Engine*. Central has the engine agent (SYSTEM) download
